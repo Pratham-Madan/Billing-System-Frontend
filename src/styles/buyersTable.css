@@ -2,6 +2,7 @@
   background: white;
   border-radius: 16px;
   border: 1px solid #ebe4d7;
+  overflow: hidden;
 }
 
 .roster-card {
@@ -37,6 +38,16 @@
   border-radius: 999px;
   background: #f3efe7;
   font-size: 11px;
+  border: none;
+  cursor: pointer;
+  color: #7b6d60;
+  font-family: inherit;
+  font-weight: 600;
+  transition: all 0.2s;
+}
+
+.tag:hover:not(.active) {
+  background: #e6dfd1;
 }
 
 .tag.active {
@@ -54,6 +65,17 @@
   padding: 8px 12px;
   border: 1px solid #ddd7cc;
   border-radius: 8px;
+  background-color: white;
+  color: #7b6d60;
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s;
+  box-sizing: border-box;
+}
+
+.roster-right select:focus {
+  border-color: #957418;
 }
 .buyers-table-wrapper {
   width: 100%;
@@ -114,6 +136,11 @@
   font-size: 14px;
   font-weight: 600;
   color: #2b1b13;
+}
+
+.gst-number {
+  font-size: 11px;
+  color: #7b6d60;
 }
 
 .buyer-location {
@@ -223,22 +250,46 @@
 }
 
 .pagination button {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid #ddd7cc;
+  background: white;
+  color: #7b6d60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
 }
 
-.active-page {
+.pagination button:hover:not(:disabled) {
+  background: #f5f2ec;
+  color: #2b1b13;
+}
+
+.pagination button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pagination button.active-page {
   background: #957418;
   color: white;
+  border-color: #957418;
 }
 
 @media (max-width: 768px) {
 
   .roster-header {
     flex-direction: column;
-    align-items: stretch;
+    align-items: flex-start;
     gap: 12px;
     padding: 12px 14px;
+    width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
   }
 
   .roster-left h3 {
@@ -247,10 +298,19 @@
 
   .roster-right {
     width: 100%;
+    max-width: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    box-sizing: border-box;
+    overflow: hidden;
   }
 
   .roster-right select {
-    width: 100%;
+    width: auto;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding-right: 24px; /* Space for the arrow */
   }
 
   .buyers-table {

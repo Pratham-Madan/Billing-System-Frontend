@@ -102,7 +102,7 @@ function Homepage() {
     }]
   };
 
-  // Parallax effect
+  // Parallax effect with mobile detection
   const [parallaxOffset, setParallaxOffset] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -139,7 +139,7 @@ function Homepage() {
         window.cancelAnimationFrame(rafId);
       }
     };
-  }, [isMobile, navigate]);
+  }, [isMobile]);
 
   return (
     <div style={{ width: '100%', minHeight: '100%', overflowX: 'clip' }}>
@@ -161,9 +161,9 @@ function Homepage() {
           left: 0,
           width: '100%',
           height: '100%',
-          background: 'rgba(0, 0, 0, 0.5)',
-          backdropFilter: 'blur(4px)',
-          WebkitBackdropFilter: 'blur(4px)',
+          background: 'rgba(0, 0, 0, 0.45)',
+          backdropFilter: 'blur(6px)',
+          WebkitBackdropFilter: 'blur(6px)',
           zIndex: 0
         }} />
 
@@ -215,7 +215,7 @@ function Homepage() {
             </p>
           </div>
 
-          {/* Image Gallery */}
+          {/* Image Gallery with enhanced hover effects */}
           <div className="hero-cards-grid" style={{
             display: 'grid',
             gridTemplateColumns: isMobile ? 'repeat(2, minmax(0, 1fr))' : 'repeat(4, minmax(0, 1fr))',
@@ -243,6 +243,30 @@ function Homepage() {
                   boxShadow: '0 10px 30px rgba(0, 0, 0, 0.3)',
                   border: isMobile ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(255, 255, 255, 0.1)'
                 }}
+                onMouseEnter={(e) => {
+                  if (!isMobile) {
+                    const card = e.currentTarget;
+                    const img = card.querySelector('img');
+                    const overlay = card.querySelector('.card-overlay');
+                    card.style.transform = `translateY(${parseInt(image.offset) - 15}px) scale(1.03)`;
+                    card.style.boxShadow = '0 30px 60px rgba(0, 0, 0, 0.5)';
+                    card.style.borderColor = 'rgba(255, 255, 255, 0.3)';
+                    if (img) img.style.transform = 'scale(1.1)';
+                    if (overlay) overlay.style.opacity = '1';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isMobile) {
+                    const card = e.currentTarget;
+                    const img = card.querySelector('img');
+                    const overlay = card.querySelector('.card-overlay');
+                    card.style.transform = `translateY(${image.offset}) scale(1)`;
+                    card.style.boxShadow = '0 10px 30px rgba(0, 0, 0, 0.3)';
+                    card.style.borderColor = 'rgba(255, 255, 255, 0.1)';
+                    if (img) img.style.transform = 'scale(1)';
+                    if (overlay) overlay.style.opacity = '0';
+                  }
+                }}
               >
                 <img
                   src={image.url}
@@ -255,7 +279,7 @@ function Homepage() {
                   }}
                 />
 
-                <div style={{
+                <div className="card-overlay" style={{
                   position: 'absolute',
                   bottom: 0,
                   left: 0,
@@ -264,9 +288,7 @@ function Homepage() {
                   background: 'linear-gradient(to top, rgba(0,0,0,0.8) 0%, transparent 100%)',
                   opacity: isMobile ? 1 : 0,
                   transition: 'opacity 0.3s ease'
-                }}
-                className="card-overlay"
-                >
+                }}>
                   <span style={{
                     color: 'white',
                     fontFamily: "'Inter', sans-serif",

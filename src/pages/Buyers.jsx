@@ -43,9 +43,14 @@ export default function Buyers() {
   const [showInsightsModal, setShowInsightsModal] = useState(false);
 
   useEffect(() => {
+    const token = sessionStorage.getItem('token');
+    if (!token) {
+      navigate('/login', { replace: true });
+      return;
+    }
     fetchCustomers();
     fetchDashboardSummary();
-  }, []);
+  }, [navigate]);
 
   const fetchCustomers = async () => {
     try {
@@ -302,7 +307,7 @@ export default function Buyers() {
 
       <div className="buyers-top">
         <div>
-          <h1>Buyer Directory</h1>
+          <h1>Buyer's Directory</h1>
 
           <p>Manage your industrial client database and pricing agreements.</p>
         </div>
@@ -398,7 +403,7 @@ export default function Buyers() {
                 });
               }}
               onCreateOrder={() =>
-                navigate(`/create-order/${selectedBuyer.id}`, {
+                navigate(`/create-order`, {
                   state: { buyer: selectedBuyer },
                 })
               }

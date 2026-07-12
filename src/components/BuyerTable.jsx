@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   FiEye,
   FiEdit2,
@@ -10,6 +11,27 @@ export default function BuyerTable({
   onEdit,
   onInsights,
 }) {
+  const [filterStatus, setFilterStatus] = useState("All Buyers");
+  const [activeTag, setActiveTag] = useState("WHOLESALE");
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 5;
+
+  const filteredBuyers = buyers.filter((buyer) => {
+    if (filterStatus === "All Buyers") return true;
+    if (filterStatus === "Settled") return buyer.pending === "₹0";
+    if (filterStatus === "Pending" || filterStatus === "Overdue") return buyer.pending !== "₹0";
+    return true;
+  });
+
+  const totalPages = Math.ceil(filteredBuyers.length / itemsPerPage) || 1;
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const paginatedBuyers = filteredBuyers.slice(startIndex, startIndex + itemsPerPage);
+
+  const handleFilterChange = (e) => {
+    setFilterStatus(e.target.value);
+    setCurrentPage(1);
+  };
+
   return (
     <div className="roster-card">
       <div className="roster-header">
@@ -17,24 +39,30 @@ export default function BuyerTable({
           <h3>Client Roster</h3>
 
           <div className="roster-tags">
-            <span className="tag active">
+            <button 
+              className={`tag ${activeTag === "WHOLESALE" ? "active" : ""}`}
+              onClick={() => setActiveTag("WHOLESALE")}
+            >
               WHOLESALE
-            </span>
+            </button>
 
-            <span className="tag">
+            <button 
+              className={`tag ${activeTag === "GLOBAL" ? "active" : ""}`}
+              onClick={() => setActiveTag("GLOBAL")}
+            >
               GLOBAL
-            </span>
+            </button>
           </div>
         </div>
 
         <div className="roster-right">
           <span>Filter by Status:</span>
 
-          <select>
-            <option>All Buyers</option>
-            <option>Settled</option>
-            <option>Pending</option>
-            <option>Overdue</option>
+          <select value={filterStatus} onChange={handleFilterChange}>
+            <option value="All Buyers">All Buyers</option>
+            <option value="Settled">Settled</option>
+            <option value="Pending">Pending</option>
+            <option value="Overdue">Overdue</option>
           </select>
         </div>
       </div>
@@ -54,7 +82,7 @@ export default function BuyerTable({
           </thead>
 
           <tbody>
-            {buyers.map((buyer) => (
+            {paginatedBuyers.map((buyer) => (
               <tr key={buyer.id}>
                 <td>
                   <div className="buyer-cell">
@@ -66,15 +94,11 @@ export default function BuyerTable({
                       <div className="buyer-name">
                         {buyer.name}
                       </div>
-
-                      <div className="buyer-location">
-                        {buyer.location}
-                      </div>
                     </div>
                   </div>
                 </td>
 
-                <td>{buyer.gst}</td>
+                <td><span className="gst-number">{buyer.gst}</span></td>
 
                 <td>
                   <div className="contact-block">
@@ -147,22 +171,34 @@ export default function BuyerTable({
 
       <div className="table-footer">
         <span>
-          Showing 1 to {buyers.length} of{" "}
-          {buyers.length} buyers
+          Showing {filteredBuyers.length > 0 ? startIndex + 1 : 0} to {Math.min(startIndex + itemsPerPage, filteredBuyers.length)} of{" "}
+          {filteredBuyers.length} buyers
         </span>
 
         <div className="pagination">
-          <button>‹</button>
-
-          <button className="active-page">
-            1
+          <button 
+            onClick={() => setCurrentPage(p => Math.max(1, p - 1))} 
+            disabled={currentPage === 1}
+          >
+            ‹
           </button>
 
-          <button>2</button>
+          {[...Array(totalPages)].map((_, i) => (
+            <button
+              key={i + 1}
+              className={currentPage === i + 1 ? "active-page" : ""}
+              onClick={() => setCurrentPage(i + 1)}
+            >
+              {i + 1}
+            </button>
+          ))}
 
-          <button>3</button>
-
-          <button>›</button>
+          <button 
+            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} 
+            disabled={currentPage === totalPages}
+          >
+            ›
+          </button>
         </div>
       </div>
     </div>

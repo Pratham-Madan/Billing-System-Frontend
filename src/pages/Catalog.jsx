@@ -1,8 +1,20 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import { getCategories, getProducts, getAdminProductsWithPrices, createProduct, updateProduct, deleteProduct, updateProductStock, uploadProductImage } from '../api';
 
 function Catalog() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('token');
+    if (!token) {
+      navigate('/login', { replace: true });
+      return;
+    }
+    fetchCategories();
+  }, [navigate]);
+
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState('Taps');
   const [showAddModal, setShowAddModal] = useState(false);
@@ -21,14 +33,17 @@ function Catalog() {
     imageFile: null
   });
 
-  useEffect(() => {
-    getCategories().then(data => {
+  const fetchCategories = async () => {
+    try {
+      const data = await getCategories();
       setCategories(data);
       if (data.length > 0 && typeof selectedCategory === 'string' && selectedCategory.length < 10) {
         setSelectedCategory(data[0].id);
       }
-    }).catch(err => console.error("Error fetching categories:", err));
-  }, []);
+    } catch (err) {
+      console.error("Error fetching categories:", err);
+    }
+  };
 
   useEffect(() => {
     if (selectedCategory && selectedCategory.length > 10) {

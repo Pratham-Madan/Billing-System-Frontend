@@ -90,20 +90,20 @@
 }
 
 .kpi-label {
-  font-size: 13px;
+  font-size: 12px;
   color: #7b6d60;
 }
 
 .kpi-card h2 {
   margin: 6px 0;
-  font-size: 28px;
+  font-size: 22px;
   font-weight: 700;
   color: #957418;
 }
 
 .kpi-card p {
   margin: 0;
-  font-size: 12px;
+  font-size: 11px;
   color: #7b6d60;
 }
 
@@ -216,7 +216,7 @@
   }
 
   .kpi-card h2 {
-    font-size: 22px;
+    font-size: 18px;
   }
 
   .drawer-overlay {

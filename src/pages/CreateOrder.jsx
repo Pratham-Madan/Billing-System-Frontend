@@ -1,8 +1,41 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import { getCustomers, getCategories, getCustomerProductsWithPrices, getAdminProductsWithPrices } from '../api';
 
 function CreateOrder() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const token = sessionStorage.getItem('token');
+    if (!token) {
+      navigate('/login', { replace: true });
+      return;
+    }
+    initializeData();
+  }, [navigate]);
+
+  const initializeData = async () => {
+    try {
+      const customersData = await getCustomers();
+      setBuyers(customersData.map(c => ({
+        id: c.id,
+        name: c.partyName,
+        city: c.billingAddress?.split(',')[0] || '',
+        discount: 0
+      })));
+
+      const categoriesData = await getCategories();
+      setCategories(categoriesData);
+      if (categoriesData.length > 0 && selectedCategory === 'Taps') {
+        setSelectedCategory(categoriesData[0].name);
+        setFlashCategory(categoriesData[0].name);
+      }
+    } catch (err) {
+      console.error('Error initializing data:', err);
+    }
+  };
+
   const [showBuyerModal, setShowBuyerModal] = useState(true);
   const [selectedBuyer, setSelectedBuyer] = useState(null);
   const [showFlashOrder, setShowFlashOrder] = useState(false);
@@ -18,25 +51,6 @@ function CreateOrder() {
   const [buyers, setBuyers] = useState([]);
   const [categories, setCategories] = useState([]);
   const [productsMap, setProductsMap] = useState({});
-
-  useEffect(() => {
-    getCustomers().then(data => {
-      setBuyers(data.map(c => ({
-        id: c.id,
-        name: c.partyName,
-        city: c.billingAddress?.split(',')[0] || '',
-        discount: 0
-      })));
-    }).catch(console.error);
-
-    getCategories().then(data => {
-      setCategories(data);
-      if (data.length > 0 && selectedCategory === 'Taps') {
-        setSelectedCategory(data[0].name);
-        setFlashCategory(data[0].name);
-      }
-    }).catch(console.error);
-  }, []);
 
   useEffect(() => {
     const fetchCatalog = async () => {

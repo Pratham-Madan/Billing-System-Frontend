@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
@@ -6,30 +7,38 @@ import jsPDF from 'jspdf';
 import { getInvoiceById } from '../api';
 
 function GenerateBill() {
+  const navigate = useNavigate();
   const [invoice, setInvoice] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchInvoice = async () => {
-      try {
-        const id = sessionStorage.getItem('generatedBillId');
-        if (!id) {
-          console.error('No invoice found');
-          setLoading(false);
-          return;
-        }
-        const data = await getInvoiceById(id);
-        setInvoice(data);
-      } catch (err) {
-        console.error('Failed to fetch invoice', err);
-      } finally {
-        setLoading(false);
-      }
-    };
+    const token = sessionStorage.getItem('token');
+    if (!token) {
+      navigate('/login', { replace: true });
+      return;
+    }
     fetchInvoice();
-  }, []);
+  }, [navigate]);
+
+  const fetchInvoice = async () => {
+    try {
+      const id = sessionStorage.getItem('generatedBillId');
+      if (!id) {
+        console.error('No invoice found');
+        setLoading(false);
+        return;
+      }
+      const data = await getInvoiceById(id);
+      setInvoice(data);
+    } catch (err) {
+      console.error('Failed to fetch invoice', err);
+    } finally {
+      setLoading(false);
+    }
+  };
   const [digitalSignature, setDigitalSignature] = useState(null);
   const billRef = useRef(null);
+  const pdfBillRef = useRef(null);
   const canvasRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [showSignaturePad, setShowSignaturePad] = useState(false);
@@ -70,31 +79,6 @@ function GenerateBill() {
     address: invoice.customerSnapshot?.billingAddress || '',
     city: '',
     gstin: invoice.customerSnapshot?.gstin || ''
-  };
-
-  const numberToWords = (num) => {
-    const ones = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-    const tens = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-    
-    if (num === 0) return 'Zero';
-    
-    const convert = (n) => {
-      if (n < 20) return ones[n];
-      if (n < 100) return tens[Math.floor(n / 10)] + (n % 10 ? ' ' + ones[n % 10] : '');
-      if (n < 1000) return ones[Math.floor(n / 100)] + ' Hundred' + (n % 100 ? ' ' + convert(n % 100) : '');
-      if (n < 100000) return convert(Math.floor(n / 1000)) + ' Thousand' + (n % 1000 ? ' ' + convert(n % 1000) : '');
-      if (n < 10000000) return convert(Math.floor(n / 100000)) + ' Lakh' + (n % 100000 ? ' ' + convert(n % 100000) : '');
-      return convert(Math.floor(n / 10000000)) + ' Crore' + (n % 10000000 ? ' ' + convert(n % 10000000) : '');
-    };
-    
-    const rupees = Math.floor(num);
-    const paise = Math.round((num - rupees) * 100);
-    
-    let result = 'Rupees ' + convert(rupees);
-    if (paise > 0) {
-      result += ' and ' + convert(paise) + ' Paise';
-    }
-    return result + ' Only';
   };
 
   // Signature Pad Functions
@@ -162,60 +146,104 @@ function GenerateBill() {
     setShowSignaturePad(false);
   };
 
-  // Direct PDF Download using jsPDF and html2canvas
+  // Generate PDF from dedicated A4 clone
   const handleDownloadPDF = async () => {
-    const element = billRef.current;
-    if (!element) return;
-
     try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
+      // Get the PDF bill element
+      const pdfElement = pdfBillRef.current;
+      if (!pdfElement) {
+        console.error('PDF bill element not found');
+        return;
+      }
+
+      // Temporarily show PDF element for capture
+      pdfElement.style.display = 'block';
+      pdfElement.style.position = 'absolute';
+      pdfElement.style.left = '-9999px';
+      pdfElement.style.top = '0';
+
+      // Wait for rendering
+      await new Promise(resolve => setTimeout(resolve, 500));
+
+      const canvas = await html2canvas(pdfElement, {
+        scale: 3,
         useCORS: true,
         allowTaint: true,
         logging: false,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        width: 794,
+        height: pdfElement.scrollHeight,
+        windowWidth: 794,
+        windowHeight: pdfElement.scrollHeight
       });
 
-      const imgData = canvas.toDataURL('image/png');
+      // Hide PDF element again
+      pdfElement.style.display = 'none';
+
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
       const pdf = new jsPDF('p', 'mm', 'a4');
       
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
+      
       const imgWidth = canvas.width;
       const imgHeight = canvas.height;
+      
       const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
       
       const imgX = (pdfWidth - imgWidth * ratio) / 2;
       let imgY = 0;
       let scaledHeight = imgHeight * ratio;
-      let heightLeft = scaledHeight;
       
-      pdf.addImage(imgData, 'PNG', imgX, imgY, pdfWidth, scaledHeight);
-      heightLeft -= pdfHeight;
+      pdf.addImage(imgData, 'JPEG', imgX, imgY, pdfWidth, scaledHeight);
       
-      while (heightLeft >= 0) {
-        imgY = heightLeft - scaledHeight;
+      // Handle multi-page
+      let heightLeft = scaledHeight - pdfHeight;
+      let pageNum = 1;
+      
+      while (heightLeft > 0) {
+        pageNum++;
+        imgY = -(pdfHeight * (pageNum - 1));
         pdf.addPage();
-        pdf.addImage(imgData, 'PNG', imgX, imgY, pdfWidth, scaledHeight);
+        pdf.addImage(imgData, 'JPEG', imgX, imgY, pdfWidth, scaledHeight);
         heightLeft -= pdfHeight;
       }
       
       pdf.save(`Invoice_${billNo}.pdf`);
     } catch (err) {
       console.error('PDF generation failed:', err);
-      alert('Failed to generate PDF. Please try again or use Print to PDF.');
+      // Fallback
+      try {
+        window.print();
+      } catch {
+        alert('Failed to generate PDF. Please try again.');
+      }
     }
   };
 
   const handleDownloadDoc = () => {
     const content = billRef.current.innerHTML;
     const html = `
+      <!DOCTYPE html>
       <html>
         <head>
           <meta charset="utf-8">
+          <meta name="viewport" content="width=794">
           <title>Invoice ${billNo}</title>
           <style>
-            body { font-family: 'Times New Roman', serif; padding: 40px; color: #333; line-height: 1.6; }
+            @page {
+              size: A4;
+              margin: 0;
+            }
+            body { 
+              font-family: 'Times New Roman', Times, serif; 
+              padding: 40px; 
+              color: #333; 
+              line-height: 1.6;
+              width: 794px;
+              margin: 0 auto;
+              background: white;
+            }
             table { width: 100%; border-collapse: collapse; margin: 15px 0; }
             th, td { border: 1px solid #000; padding: 8px 12px; text-align: left; font-size: 12px; }
             th { background: #f5f5f5; font-weight: bold; }
@@ -223,11 +251,10 @@ function GenerateBill() {
             .header h1 { font-size: 24px; margin: 0 0 5px 0; letter-spacing: 2px; }
             .header p { margin: 3px 0; font-size: 12px; }
             .invoice-title { text-align: center; font-size: 20px; font-weight: bold; letter-spacing: 3px; text-transform: uppercase; margin: 15px 0; }
-            .bill-details { width: 100%; margin-bottom: 20px; border-bottom: 1px dashed #000; padding-bottom: 10px; }
             .bill-details td { border: none; vertical-align: top; padding: 5px; font-size: 12px; }
-            .summary-table td { border: 1px solid #000; padding: 6px 10px; }
-            .footer { margin-top: 40px; display: flex; justify-content: space-between; border-top: 2px solid #000; padding-top: 15px; }
-            .signature-line { width: 170px; height: 1px; background: #000; margin-top: 25px; }
+            .summary-section { display: flex; justify-content: space-between; margin-bottom: 25px; }
+            .footer { margin-top: 40px; display: flex; justify-content: space-between; border-top: 2px solid #000; padding-top: 20px; }
+            .signature-line { width: 180px; height: 1px; background: #000; margin-top: 30px; }
           </style>
         </head>
         <body>
@@ -301,9 +328,287 @@ function GenerateBill() {
     );
   }
 
+  // Bill Content Component (reused for both preview and PDF)
+  const BillContent = ({ isPdfVersion = false }) => (
+    <div
+      className={`bill-content ${isPdfVersion ? 'pdf-version' : ''}`}
+      style={{
+        background: 'white',
+        padding: isPdfVersion ? '40px 45px' : '30px 40px 40px',
+        boxShadow: isPdfVersion ? 'none' : '0 10px 40px rgba(0,0,0,0.08)',
+        fontFamily: "'Times New Roman', Times, serif",
+        color: '#333',
+        fontSize: '12px',
+        lineHeight: '1.5',
+        width: isPdfVersion ? '794px' : '100%',
+        boxSizing: 'border-box',
+        margin: isPdfVersion ? '0' : '0 auto'
+      }}
+    >
+      {/* Header */}
+      <div style={{
+        textAlign: 'center',
+        borderBottom: '2px solid #000',
+        paddingBottom: '15px',
+        marginBottom: '15px'
+      }}>
+        <h1 style={{
+          fontSize: isPdfVersion ? '24px' : '22px',
+          fontWeight: 'bold',
+          letterSpacing: '2px',
+          margin: '0 0 5px 0',
+          color: '#000'
+        }}>
+          {companyInfo.name}
+        </h1>
+        <p style={{ margin: '3px 0', fontSize: '12px', color: '#555' }}>
+          {companyInfo.address}
+        </p>
+        <p style={{ margin: '3px 0', fontSize: '12px', color: '#555' }}>
+          {companyInfo.city}
+        </p>
+        <p style={{ margin: '3px 0', fontSize: '12px', color: '#555' }}>
+          Phone: {companyInfo.phone} | Email: {companyInfo.email}
+        </p>
+        <p style={{ margin: '3px 0', fontSize: '12px', color: '#555' }}>
+          GSTIN: {companyInfo.gstin} | PAN: {companyInfo.pan}
+        </p>
+      </div>
+
+      {/* Tax Invoice Title */}
+      <div style={{
+        textAlign: 'center',
+        marginBottom: '20px'
+      }}>
+        <h2 style={{
+          fontSize: isPdfVersion ? '20px' : '18px',
+          fontWeight: 'bold',
+          letterSpacing: '3px',
+          textTransform: 'uppercase',
+          margin: 0,
+          color: '#000'
+        }}>
+          Tax Invoice
+        </h2>
+      </div>
+
+      {/* Bill To and Invoice Details */}
+      <table className="bill-details-table" style={{
+        width: '100%',
+        borderCollapse: 'collapse',
+        marginBottom: '25px',
+        borderBottom: '1px dashed #000',
+        paddingBottom: '15px'
+      }}>
+        <tbody>
+          <tr className="bill-details-row">
+            <td className="bill-to-cell" style={{
+              border: 'none',
+              padding: '0 10px 15px 0',
+              verticalAlign: 'top',
+              width: '50%'
+            }}>
+              <h3 style={{ fontSize: '13px', fontWeight: 'bold', margin: '0 0 8px 0' }}>
+                Bill To:
+              </h3>
+              <p style={{ margin: '2px 0', fontSize: '12px', fontWeight: 'bold' }}>
+                {buyerInfo.name}
+              </p>
+              <p style={{ margin: '2px 0', fontSize: '11px', color: '#555' }}>
+                {buyerInfo.address}
+              </p>
+              <p style={{ margin: '2px 0', fontSize: '11px', color: '#555' }}>
+                {buyerInfo.city}
+              </p>
+              <p style={{ margin: '2px 0', fontSize: '11px', color: '#555' }}>
+                GSTIN: {buyerInfo.gstin}
+              </p>
+            </td>
+            <td className="invoice-info-cell" style={{
+              border: 'none',
+              padding: '0 0 15px 0',
+              verticalAlign: 'top',
+              textAlign: 'right'
+            }}>
+              <table style={{ border: 'none', width: 'auto', marginLeft: 'auto' }}>
+                <tbody>
+                  <tr>
+                    <td style={{ border: 'none', padding: '2px 10px 2px 0', fontWeight: 'bold', fontSize: '11px', textAlign: 'right' }}>Invoice No:</td>
+                    <td style={{ border: 'none', padding: '2px 0', fontSize: '11px' }}>{billNo}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ border: 'none', padding: '2px 10px 2px 0', fontWeight: 'bold', fontSize: '11px', textAlign: 'right' }}>Date:</td>
+                    <td style={{ border: 'none', padding: '2px 0', fontSize: '11px' }}>{billDate}</td>
+                  </tr>
+                  <tr>
+                    <td style={{ border: 'none', padding: '2px 10px 2px 0', fontWeight: 'bold', fontSize: '11px', textAlign: 'right' }}>Due Date:</td>
+                    <td style={{ border: 'none', padding: '2px 0', fontSize: '11px' }}>{dueDate}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      {/* Items Table */}
+      <div style={{ overflowX: 'auto', marginBottom: '25px' }}>
+        <table className="items-table" style={{
+          width: '100%',
+          borderCollapse: 'collapse',
+          minWidth: '500px'
+        }}>
+          <thead>
+            <tr>
+              <th style={{ border: '1px solid #000', padding: '8px', background: '#f5f5f5', fontSize: '11px', fontWeight: 'bold', textAlign: 'center', width: '40px' }}>S.No</th>
+              <th style={{ border: '1px solid #000', padding: '8px', background: '#f5f5f5', fontSize: '11px', fontWeight: 'bold', textAlign: 'left' }}>Description</th>
+              <th style={{ border: '1px solid #000', padding: '8px', background: '#f5f5f5', fontSize: '11px', fontWeight: 'bold', textAlign: 'center', width: '60px' }}>HSN</th>
+              <th style={{ border: '1px solid #000', padding: '8px', background: '#f5f5f5', fontSize: '11px', fontWeight: 'bold', textAlign: 'center', width: '50px' }}>Qty</th>
+              <th style={{ border: '1px solid #000', padding: '8px', background: '#f5f5f5', fontSize: '11px', fontWeight: 'bold', textAlign: 'right', width: '90px' }}>Rate</th>
+              <th style={{ border: '1px solid #000', padding: '8px', background: '#f5f5f5', fontSize: '11px', fontWeight: 'bold', textAlign: 'right', width: '90px' }}>Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            {cartItems.map((item, index) => (
+              <tr key={item.id}>
+                <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'center', fontSize: '11px' }}>{index + 1}</td>
+                <td style={{ border: '1px solid #000', padding: '8px', fontSize: '11px' }}>
+                  <div style={{ fontWeight: '500' }}>{item.productName}</div>
+                  <div style={{ fontSize: '9px', color: '#666', marginTop: '2px' }}>Model: #{item.model}</div>
+                </td>
+                <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'center', fontSize: '10px' }}>7324</td>
+                <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'center', fontSize: '11px' }}>{item.quantity}</td>
+                <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'right', fontSize: '11px' }}>{parseFloat(item.rate).toFixed(2)}</td>
+                <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'right', fontSize: '11px', fontWeight: '500' }}>
+                  {(item.quantity * parseFloat(item.rate)).toFixed(2)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Summary Section */}
+      <div className="summary-section" style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        marginBottom: '25px',
+        gap: '20px',
+        flexWrap: 'wrap'
+      }}>
+        <div className="amount-words" style={{ flex: '1 1 300px', minWidth: '250px' }}>
+          <p style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 8px 0' }}>
+            Amount Chargeable (in words):
+          </p>
+          <p style={{
+            fontSize: '11px',
+            fontStyle: 'italic',
+            color: '#555',
+            borderTop: '1px solid #000',
+            paddingTop: '8px',
+            lineHeight: '1.4'
+          }}>
+            {invoice.totalInWords}
+          </p>
+          <p style={{ fontSize: '9px', color: '#888', marginTop: '10px', fontStyle: 'italic' }}>
+            * This is a computer generated invoice
+          </p>
+        </div>
+
+        <div className="totals-section" style={{ width: '280px', flexShrink: 0 }}>
+          <table className="totals-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
+            <tbody>
+              <tr>
+                <td style={{ border: '1px solid #000', padding: '8px 12px', fontSize: '12px', fontWeight: '600', background: '#fafafa' }}>Subtotal</td>
+                <td style={{ border: '1px solid #000', padding: '8px 12px', textAlign: 'right', fontSize: '12px', fontWeight: '600', background: '#fafafa' }}>
+                  &#8377; {subtotal.toFixed(2)}
+                </td>
+              </tr>
+              <tr>
+                <td style={{ border: '1px solid #000', padding: '8px 12px', fontSize: '12px', background: '#fafafa' }}>IGST @ 5%</td>
+                <td style={{ border: '1px solid #000', padding: '8px 12px', textAlign: 'right', fontSize: '12px', background: '#fafafa' }}>
+                  &#8377; {gst.toFixed(2)}
+                </td>
+              </tr>
+              <tr>
+                <td style={{ border: '2px solid #000', padding: '10px 12px', fontSize: '14px', fontWeight: 'bold', background: '#f0f0f0' }}>Grand Total</td>
+                <td style={{ border: '2px solid #000', padding: '10px 12px', textAlign: 'right', fontSize: '14px', fontWeight: 'bold', background: '#f0f0f0' }}>
+                  &#8377; {grandTotal.toFixed(2)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Terms and Conditions */}
+      <div style={{ borderTop: '1px dashed #000', paddingTop: '15px', marginTop: '10px' }}>
+        <h3 style={{ fontSize: '12px', fontWeight: 'bold', margin: '0 0 10px 0' }}>
+          Terms & Conditions:
+        </h3>
+        <div style={{ fontSize: '11px', color: '#555', lineHeight: '1.8' }}>
+          <p style={{ margin: '0 0 4px 0' }}>Goods once sold will not be taken back or exchanged.</p>
+          <p style={{ margin: '0 0 4px 0' }}>Payment is due within 15 days from the date of invoice.</p>
+          <p style={{ margin: '0 0 4px 0' }}>Interest @ 18% p.a. will be charged on delayed payments.</p>
+          <p style={{ margin: 0 }}>Subject to Delhi jurisdiction only.</p>
+        </div>
+      </div>
+
+      {/* Footer with Digital Signature */}
+      <div className="bill-footer" style={{
+        marginTop: '40px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        borderTop: '2px solid #000',
+        paddingTop: '20px',
+        gap: '20px'
+      }}>
+        <div className="signature-block">
+          <p style={{ fontSize: '11px', fontWeight: 'bold', margin: '0 0 5px 0' }}>
+            Customer Signature
+          </p>
+          <div style={{ width: '180px', height: '1px', background: '#000', marginTop: '30px' }} className="signature-line" />
+        </div>
+        <div className="signature-block" style={{ textAlign: 'right' }}>
+          <p style={{ fontSize: '11px', fontWeight: 'bold', margin: '0 0 5px 0' }}>
+            For {companyInfo.name}
+          </p>
+          {digitalSignature ? (
+            <img 
+              src={digitalSignature} 
+              alt="Digital Signature" 
+              style={{ width: '180px', height: '60px', objectFit: 'contain', marginTop: '5px', marginLeft: 'auto', display: 'block' }} 
+            />
+          ) : (
+            <div style={{ width: '180px', height: '1px', background: '#000', marginTop: '30px', marginLeft: 'auto' }} className="signature-line" />
+          )}
+          <p style={{ fontSize: '10px', marginTop: '5px', color: '#555' }}>
+            Authorised Signatory
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div style={{ minHeight: '100vh', background: '#f0f0f0' }}>
       <Navbar />
+      
+      {/* Hidden A4 PDF Version - This is what gets captured for PDF */}
+      <div 
+        ref={pdfBillRef}
+        style={{
+          display: 'none',
+          position: 'absolute',
+          left: '-9999px',
+          top: 0,
+          width: '794px',
+          background: 'white',
+          zIndex: -1
+        }}
+      >
+        <BillContent isPdfVersion={true} />
+      </div>
       
       {/* Action Buttons - Responsive */}
       <div 
@@ -341,7 +646,7 @@ function GenerateBill() {
             <path d="M3 17v3h3l11-11-3-3L3 17z"/>
             <path d="M16 2l3 3-3 3-3-3 3-3z"/>
           </svg>
-          <span className="btn-text">Digital Signature</span>
+          <span className="btn-text">Signature</span>
         </button>
         
         <button
@@ -370,7 +675,7 @@ function GenerateBill() {
             <line x1="16" y1="17" x2="8" y2="17"/>
             <polyline points="10 9 9 9 8 9"/>
           </svg>
-          <span className="btn-text">Download PDF</span>
+          <span className="btn-text">PDF</span>
         </button>
         
         <button
@@ -396,7 +701,7 @@ function GenerateBill() {
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
             <polyline points="14 2 14 8 20 8"/>
           </svg>
-          <span className="btn-text">Download DOC</span>
+          <span className="btn-text">DOC</span>
         </button>
         
         <button
@@ -565,7 +870,7 @@ function GenerateBill() {
         </div>
       )}
 
-      {/* Bill Container */}
+      {/* Bill Container - Preview */}
       <div 
         className="bill-container"
         style={{
@@ -574,490 +879,8 @@ function GenerateBill() {
           margin: '0 auto'
         }}
       >
-        <div
-          ref={billRef}
-          className="bill-content"
-          style={{
-            background: 'white',
-            padding: '30px 40px 40px',
-            boxShadow: '0 10px 40px rgba(0,0,0,0.08)',
-            fontFamily: "'Times New Roman', Times, serif",
-            color: '#333',
-            fontSize: '12px',
-            lineHeight: '1.5'
-          }}
-        >
-          {/* Header */}
-          <div style={{
-            textAlign: 'center',
-            borderBottom: '2px solid #000',
-            paddingBottom: '15px',
-            marginBottom: '15px'
-          }}>
-            <h1 style={{
-              fontSize: '22px',
-              fontWeight: 'bold',
-              letterSpacing: '2px',
-              margin: '0 0 5px 0',
-              color: '#000'
-            }}>
-              {companyInfo.name}
-            </h1>
-            <p style={{ margin: '3px 0', fontSize: '12px', color: '#555' }}>
-              {companyInfo.address}
-            </p>
-            <p style={{ margin: '3px 0', fontSize: '12px', color: '#555' }}>
-              {companyInfo.city}
-            </p>
-            <p style={{ margin: '3px 0', fontSize: '12px', color: '#555' }}>
-              Phone: {companyInfo.phone} | Email: {companyInfo.email}
-            </p>
-            <p style={{ margin: '3px 0', fontSize: '12px', color: '#555' }}>
-              GSTIN: {companyInfo.gstin} | PAN: {companyInfo.pan}
-            </p>
-          </div>
-
-          {/* Tax Invoice Title */}
-          <div style={{
-            textAlign: 'center',
-            marginBottom: '20px'
-          }}>
-            <h2 style={{
-              fontSize: '18px',
-              fontWeight: 'bold',
-              letterSpacing: '3px',
-              textTransform: 'uppercase',
-              margin: 0,
-              color: '#000'
-            }}>
-              Tax Invoice
-            </h2>
-          </div>
-
-          {/* Bill To and Invoice Details - Responsive */}
-          <table 
-            className="bill-details-table"
-            style={{
-              width: '100%',
-              borderCollapse: 'collapse',
-              marginBottom: '25px',
-              borderBottom: '1px dashed #000',
-              paddingBottom: '15px'
-            }}
-          >
-            <tbody>
-              <tr className="bill-details-row">
-                <td 
-                  className="bill-to-cell"
-                  style={{
-                    border: 'none',
-                    padding: '0 10px 15px 0',
-                    verticalAlign: 'top',
-                    width: '50%'
-                  }}
-                >
-                  <h3 style={{
-                    fontSize: '13px',
-                    fontWeight: 'bold',
-                    margin: '0 0 8px 0'
-                  }}>
-                    Bill To:
-                  </h3>
-                  <p style={{ margin: '2px 0', fontSize: '12px', fontWeight: 'bold' }}>
-                    {buyerInfo.name}
-                  </p>
-                  <p style={{ margin: '2px 0', fontSize: '11px', color: '#555' }}>
-                    {buyerInfo.address}
-                  </p>
-                  <p style={{ margin: '2px 0', fontSize: '11px', color: '#555' }}>
-                    {buyerInfo.city}
-                  </p>
-                  <p style={{ margin: '2px 0', fontSize: '11px', color: '#555' }}>
-                    GSTIN: {buyerInfo.gstin}
-                  </p>
-                </td>
-
-                <td 
-                  className="invoice-info-cell"
-                  style={{
-                    border: 'none',
-                    padding: '0 0 15px 0',
-                    verticalAlign: 'top',
-                    textAlign: 'right'
-                  }}
-                >
-                  <table style={{ border: 'none', width: 'auto', marginLeft: 'auto' }}>
-                    <tbody>
-                      <tr>
-                        <td style={{ border: 'none', padding: '2px 10px 2px 0', fontWeight: 'bold', fontSize: '11px', textAlign: 'right' }}>Invoice No:</td>
-                        <td style={{ border: 'none', padding: '2px 0', fontSize: '11px' }}>{billNo}</td>
-                      </tr>
-                      <tr>
-                        <td style={{ border: 'none', padding: '2px 10px 2px 0', fontWeight: 'bold', fontSize: '11px', textAlign: 'right' }}>Date:</td>
-                        <td style={{ border: 'none', padding: '2px 0', fontSize: '11px' }}>{billDate}</td>
-                      </tr>
-                      <tr>
-                        <td style={{ border: 'none', padding: '2px 10px 2px 0', fontWeight: 'bold', fontSize: '11px', textAlign: 'right' }}>Due Date:</td>
-                        <td style={{ border: 'none', padding: '2px 0', fontSize: '11px' }}>{dueDate}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-
-          {/* Items Table - Responsive */}
-          <div style={{ overflowX: 'auto', marginBottom: '25px' }}>
-            <table 
-              className="items-table"
-              style={{
-                width: '100%',
-                borderCollapse: 'collapse',
-                minWidth: '500px'
-              }}
-            >
-              <thead>
-                <tr>
-                  <th style={{
-                    border: '1px solid #000',
-                    padding: '8px',
-                    background: '#f5f5f5',
-                    fontSize: '11px',
-                    fontWeight: 'bold',
-                    textAlign: 'center',
-                    width: '40px'
-                  }}>
-                    S.No
-                  </th>
-                  <th style={{
-                    border: '1px solid #000',
-                    padding: '8px',
-                    background: '#f5f5f5',
-                    fontSize: '11px',
-                    fontWeight: 'bold',
-                    textAlign: 'left'
-                  }}>
-                    Description
-                  </th>
-                  <th style={{
-                    border: '1px solid #000',
-                    padding: '8px',
-                    background: '#f5f5f5',
-                    fontSize: '11px',
-                    fontWeight: 'bold',
-                    textAlign: 'center',
-                    width: '60px'
-                  }}>
-                    HSN
-                  </th>
-                  <th style={{
-                    border: '1px solid #000',
-                    padding: '8px',
-                    background: '#f5f5f5',
-                    fontSize: '11px',
-                    fontWeight: 'bold',
-                    textAlign: 'center',
-                    width: '50px'
-                  }}>
-                    Qty
-                  </th>
-                  <th style={{
-                    border: '1px solid #000',
-                    padding: '8px',
-                    background: '#f5f5f5',
-                    fontSize: '11px',
-                    fontWeight: 'bold',
-                    textAlign: 'right',
-                    width: '90px'
-                  }}>
-                    Rate
-                  </th>
-                  <th style={{
-                    border: '1px solid #000',
-                    padding: '8px',
-                    background: '#f5f5f5',
-                    fontSize: '11px',
-                    fontWeight: 'bold',
-                    textAlign: 'right',
-                    width: '90px'
-                  }}>
-                    Amount
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {cartItems.map((item, index) => (
-                  <tr key={item.id}>
-                    <td style={{
-                      border: '1px solid #000',
-                      padding: '8px',
-                      textAlign: 'center',
-                      fontSize: '11px'
-                    }}>
-                      {index + 1}
-                    </td>
-                    <td style={{
-                      border: '1px solid #000',
-                      padding: '8px',
-                      fontSize: '11px'
-                    }}>
-                      <div style={{ fontWeight: '500' }}>{item.productName}</div>
-                      <div style={{ fontSize: '9px', color: '#666', marginTop: '2px' }}>Model: #{item.model}</div>
-                    </td>
-                    <td style={{
-                      border: '1px solid #000',
-                      padding: '8px',
-                      textAlign: 'center',
-                      fontSize: '10px'
-                    }}>
-                      7324
-                    </td>
-                    <td style={{
-                      border: '1px solid #000',
-                      padding: '8px',
-                      textAlign: 'center',
-                      fontSize: '11px'
-                    }}>
-                      {item.quantity}
-                    </td>
-                    <td style={{
-                      border: '1px solid #000',
-                      padding: '8px',
-                      textAlign: 'right',
-                      fontSize: '11px'
-                    }}>
-                      {parseFloat(item.rate).toFixed(2)}
-                    </td>
-                    <td style={{
-                      border: '1px solid #000',
-                      padding: '8px',
-                      textAlign: 'right',
-                      fontSize: '11px',
-                      fontWeight: '500'
-                    }}>
-                      {(item.quantity * parseFloat(item.rate)).toFixed(2)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-
-          {/* Summary Section - Responsive */}
-          <div 
-            className="summary-section"
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              marginBottom: '25px',
-              gap: '20px',
-              flexWrap: 'wrap'
-            }}
-          >
-            <div 
-              className="amount-words"
-              style={{
-                flex: '1 1 300px',
-                minWidth: '250px'
-              }}
-            >
-              <p style={{
-                fontSize: '12px',
-                fontWeight: 'bold',
-                margin: '0 0 8px 0'
-              }}>
-                Amount Chargeable (in words):
-              </p>
-              <p style={{
-                fontSize: '11px',
-                fontStyle: 'italic',
-                color: '#555',
-                borderTop: '1px solid #000',
-                paddingTop: '8px',
-                lineHeight: '1.4'
-              }}>
-                {invoice.totalInWords}
-              </p>
-              <p style={{
-                fontSize: '9px',
-                color: '#888',
-                marginTop: '10px',
-                fontStyle: 'italic'
-              }}>
-                * This is a computer generated invoice
-              </p>
-            </div>
-
-            <div 
-              className="totals-section"
-              style={{
-                width: '280px',
-                flexShrink: 0
-              }}
-            >
-              <table className="totals-table" style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <tbody>
-                  <tr>
-                    <td style={{
-                      border: '1px solid #000',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      background: '#fafafa'
-                    }}>
-                      Subtotal
-                    </td>
-                    <td style={{
-                      border: '1px solid #000',
-                      padding: '8px 12px',
-                      textAlign: 'right',
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      background: '#fafafa'
-                    }}>
-                      &#8377; {subtotal.toFixed(2)}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style={{
-                      border: '1px solid #000',
-                      padding: '8px 12px',
-                      fontSize: '12px',
-                      background: '#fafafa'
-                    }}>
-                      IGST @ 5%
-                    </td>
-                    <td style={{
-                      border: '1px solid #000',
-                      padding: '8px 12px',
-                      textAlign: 'right',
-                      fontSize: '12px',
-                      background: '#fafafa'
-                    }}>
-                      &#8377; {gst.toFixed(2)}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style={{
-                      border: '2px solid #000',
-                      padding: '10px 12px',
-                      fontSize: '14px',
-                      fontWeight: 'bold',
-                      background: '#f0f0f0'
-                    }}>
-                      Grand Total
-                    </td>
-                    <td style={{
-                      border: '2px solid #000',
-                      padding: '10px 12px',
-                      textAlign: 'right',
-                      fontSize: '14px',
-                      fontWeight: 'bold',
-                      background: '#f0f0f0'
-                    }}>
-                      &#8377; {grandTotal.toFixed(2)}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          {/* Terms and Conditions */}
-          <div style={{
-            borderTop: '1px dashed #000',
-            paddingTop: '15px',
-            marginTop: '10px'
-          }}>
-            <h3 style={{
-              fontSize: '12px',
-              fontWeight: 'bold',
-              margin: '0 0 10px 0'
-            }}>
-              Terms & Conditions:
-            </h3>
-            <div style={{
-              fontSize: '11px',
-              color: '#555',
-              lineHeight: '1.8'
-            }}>
-              <p style={{ margin: '0 0 4px 0' }}>Goods once sold will not be taken back or exchanged.</p>
-              <p style={{ margin: '0 0 4px 0' }}>Payment is due within 15 days from the date of invoice.</p>
-              <p style={{ margin: '0 0 4px 0' }}>Interest @ 18% p.a. will be charged on delayed payments.</p>
-              <p style={{ margin: 0 }}>Subject to Delhi jurisdiction only.</p>
-            </div>
-          </div>
-
-          {/* Footer with Digital Signature on Authorised Signatory */}
-          <div 
-            className="bill-footer"
-            style={{
-              marginTop: '40px',
-              display: 'flex',
-              justifyContent: 'space-between',
-              borderTop: '2px solid #000',
-              paddingTop: '20px',
-              gap: '20px'
-            }}
-          >
-            <div className="signature-block">
-              <p style={{
-                fontSize: '11px',
-                fontWeight: 'bold',
-                margin: '0 0 5px 0'
-              }}>
-                Customer Signature
-              </p>
-              <div style={{
-                width: '180px',
-                height: '1px',
-                background: '#000',
-                marginTop: '30px'
-              }} className="signature-line" />
-            </div>
-            <div 
-              className="signature-block" 
-              style={{ textAlign: 'right' }}
-            >
-              <p style={{
-                fontSize: '11px',
-                fontWeight: 'bold',
-                margin: '0 0 5px 0'
-              }}>
-                For {companyInfo.name}
-              </p>
-              {digitalSignature ? (
-                <img 
-                  src={digitalSignature} 
-                  alt="Digital Signature" 
-                  style={{
-                    width: '180px',
-                    height: '60px',
-                    objectFit: 'contain',
-                    marginTop: '5px',
-                    marginLeft: 'auto',
-                    display: 'block'
-                  }} 
-                />
-              ) : (
-                <div style={{
-                  width: '180px',
-                  height: '1px',
-                  background: '#000',
-                  marginTop: '30px',
-                  marginLeft: 'auto'
-                }} className="signature-line" />
-              )}
-              <p style={{
-                fontSize: '10px',
-                marginTop: '5px',
-                color: '#555'
-              }}>
-                Authorised Signatory
-              </p>
-            </div>
-          </div>
+        <div ref={billRef}>
+          <BillContent isPdfVersion={false} />
         </div>
       </div>
 
@@ -1086,7 +909,6 @@ function GenerateBill() {
           }
         }
 
-        /* Tablet Responsive */
         @media (max-width: 900px) {
           .bill-container {
             padding: 90px 20px 30px !important;
@@ -1110,7 +932,6 @@ function GenerateBill() {
           }
         }
 
-        /* Mobile Responsive */
         @media (max-width: 768px) {
           .bill-container {
             padding: 80px 10px 80px !important;
@@ -1188,7 +1009,6 @@ function GenerateBill() {
           }
         }
 
-        /* Small Mobile */
         @media (max-width: 480px) {
           .bill-container {
             padding: 70px 8px 70px !important;

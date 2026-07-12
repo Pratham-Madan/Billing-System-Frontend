@@ -18,6 +18,16 @@ function Invoices() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    const token = sessionStorage.getItem('token');
+    if (!token) {
+      navigate('/login', { replace: true });
+      return;
+    }
+    fetchCustomers();
+    fetchInvoices();
+  }, [navigate]);
+
   // Fetch Customers API
   const fetchCustomers = async () => {
     try {
@@ -95,12 +105,6 @@ function Invoices() {
       setLoading(false);
     }
   };
-
-  // Load APIs on component mount
-  useEffect(() => {
-    fetchCustomers();
-    fetchInvoices();
-  }, []);
 
   // Filter transactions based on selected criteria
   useEffect(() => {
